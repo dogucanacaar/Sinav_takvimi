@@ -1,0 +1,13 @@
+# Derleme baglami kucuk kalsin: bunlarin hepsi zaten bag noktasi (bind
+# mount) uzerinden konteynere geliyor, imaja kopyalanmalarinin anlami yok.
+.git
+.github
+vendor
+node_modules
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+public/build
+.env
+*.tar.gz

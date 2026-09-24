@@ -1,0 +1,95 @@
+services:
+
+  # Uygulama (HTTP)
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    volumes:
+      - .:/var/www/html
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: sinav
+      DB_USERNAME: sinav
+      DB_PASSWORD: sinav
+      REDIS_HOST: redis
+      # Kuyruk ve önbellek varsayılan olarak veritabanında tutulur.
+      # Sebebi: tek bağımlılıkla çalışması. Redis'e geçmek için aşağıdaki
+      # iki satırı `redis` yapın ve servisi de kaldırın:
+      #   docker compose --profile redis up -d redis
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+    # Bagimliliklar henuz kurulmamisken baslatilirsa konteyner cikar;
+    # yeniden deneyerek vendor klasoru olustugu anda kendiliginden acilir.
+    restart: unless-stopped
+    command: php artisan serve --host=0.0.0.0 --port=8000
+
+  # Kuyruk işçisi — çözüm motoru burada çalışır.
+  # Ayrı konteyner olmasının nedeni: uzun süren çözüm işinin
+  # HTTP isteğini bloke etmemesi ve bağımsız ölçeklenebilmesi.
+  worker:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: sinav
+      DB_USERNAME: sinav
+      DB_PASSWORD: sinav
+      REDIS_HOST: redis
+      # app ile aynı olmalı: işçi başka bir kuyruğu dinlerse iş hiç
+      # alınmaz ve arayüzde sonsuza kadar "kuyrukta bekliyor" görünür.
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+    restart: unless-stopped
+    command: php artisan queue:work --queue=solve --timeout=1800 --tries=1
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sinav
+      POSTGRES_USER: sinav
+      POSTGRES_PASSWORD: sinav
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sinav -d sinav"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Redis isteğe bağlıdır ve varsayılan olarak hiç başlatılmaz.
+  #
+  # Kuyruk da önbellek de veritabanında tutuluyor; ayakta duran ama
+  # kimsenin kullanmadığı bir servis, arıza ararken yanlış yere
+  # baktırıyor. İstenirse açıkça kaldırılır:
+  #   docker compose --profile redis up -d redis
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
